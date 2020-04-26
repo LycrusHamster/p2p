@@ -4,10 +4,8 @@ use futures::{
     stream::iter,
     Sink, SinkExt, Stream, StreamExt,
 };
-use log::{debug, trace};
-use tokio::prelude::{AsyncRead, AsyncWrite};
-use tokio_util::codec::{length_delimited::LengthDelimitedCodec, Framed};
-
+use hex;
+use log::{debug, info, trace};
 use std::{
     cmp::min,
     collections::VecDeque,
@@ -20,6 +18,8 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+use tokio::prelude::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{length_delimited::LengthDelimitedCodec, Framed};
 
 use crate::{
     codec::{stream_handle::StreamEvent, stream_handle::StreamHandle, Hmac},
@@ -325,8 +325,16 @@ where
     }
 
     fn decode(&mut self, frame: BytesMut) -> Result<(), SecioError> {
+        info!(
+            "secure_stream receive encoded data: {:?}",
+            hex::encode(frame.as_ref())
+        );
         let t = self.decode_inner(frame)?;
         debug!("receive data size: {:?}", t.len());
+        info!(
+            "secure_stream receive raw data: {:?}",
+            hex::encode(t.as_ref())
+        );
         self.read_buf.push_back(StreamEvent::Frame(t));
         Ok(())
     }
@@ -347,7 +355,15 @@ where
     }
 
     fn encode(&mut self, data: BytesMut) {
+        info!(
+            "secure_stream send raw data: {:?}",
+            hex::encode(data.as_ref())
+        );
         let frame = self.encode_inner(data);
+        info!(
+            "secure_stream send encoded data: {:?}",
+            hex::encode(frame.as_ref())
+        );
         self.pending.push_back(frame.freeze());
     }
 }
