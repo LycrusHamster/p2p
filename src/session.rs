@@ -1,4 +1,5 @@
 use futures::{channel::mpsc, prelude::*, stream::iter};
+use hex;
 use log::{debug, error, trace, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::{
@@ -32,6 +33,7 @@ use crate::{
 };
 
 /// Event generated/received by the Session
+#[derive(Debug)]
 pub(crate) enum SessionEvent {
     /// Session close event
     SessionClose {
@@ -371,6 +373,18 @@ where
             }
             if let Some(stream_id) = self.proto_streams.get(&proto_id) {
                 if let Some(sender) = self.sub_streams.get_mut(&stream_id) {
+                    if let ProtocolEvent::Message {
+                        id,
+                        proto_id,
+                        priority,
+                        data,
+                    } = &event
+                    {
+                        log::info!(
+                            "session is going to send to sub stream, {:?}",
+                            hex::encode(data.as_ref())
+                        );
+                    }
                     if let Err(e) = sender.try_send(event) {
                         if e.is_full() {
                             self.push_back(priority, proto_id, e.into_inner());
@@ -593,6 +607,11 @@ where
                 ..
             } => {
                 if let Some(stream_id) = self.proto_streams.get(&proto_id) {
+                    log::info!(
+                        "handle_session_event, push into writebuf {}",
+                        hex::encode(data.as_ref())
+                    );
+
                     let event = ProtocolEvent::Message {
                         id: *stream_id,
                         proto_id,
@@ -759,6 +778,7 @@ where
             let task = match Pin::new(&mut self.quick_receiver).as_mut().poll_next(cx) {
                 Poll::Ready(Some(event)) => {
                     if !self.state.is_normal() {
+                        log::info!("session, abnormal, session event: {:?}", event);
                         None
                     } else {
                         Some(event)
@@ -903,6 +923,10 @@ where
         // double check here
         if self.state.is_local_close() {
             debug!(
+                "Session({:?}) finished, self.state.is_local_close()",
+                self.context.id
+            );
+            log::info!(
                 "Session({:?}) finished, self.state.is_local_close()",
                 self.context.id
             );

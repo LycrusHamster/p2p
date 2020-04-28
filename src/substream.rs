@@ -1,4 +1,15 @@
+use crate::{
+    builder::BeforeReceive,
+    context::SessionContext,
+    error::Error,
+    protocol_handle_stream::{ServiceProtocolEvent, SessionProtocolEvent},
+    service::{event::Priority, DELAY_TIME},
+    traits::Codec,
+    yamux::{Config, StreamHandle},
+    ProtocolId, StreamId,
+};
 use futures::{channel::mpsc, prelude::*, stream::iter};
+use hex;
 use log::debug;
 use std::{
     collections::VecDeque,
@@ -12,17 +23,6 @@ use std::{
 };
 use tokio::prelude::AsyncWrite;
 use tokio_util::codec::{length_delimited::LengthDelimitedCodec, Framed};
-
-use crate::{
-    builder::BeforeReceive,
-    context::SessionContext,
-    error::Error,
-    protocol_handle_stream::{ServiceProtocolEvent, SessionProtocolEvent},
-    service::{event::Priority, DELAY_TIME},
-    traits::Codec,
-    yamux::{Config, StreamHandle},
-    ProtocolId, StreamId,
-};
 
 /// Event generated/received by the protocol stream
 #[derive(Debug)]
@@ -170,6 +170,7 @@ where
     /// Send data to the lower `yamux` sub stream
     fn send_data(&mut self, cx: &mut Context) -> Result<(), io::Error> {
         while let Some(frame) = self.high_write_buf.pop_front() {
+            log::info!("substream is going to send {}", hex::encode(frame.as_ref()));
             if self.send_inner(cx, frame, Priority::High)? && self.poll_complete(cx)? {
                 return Ok(());
             }
@@ -277,6 +278,12 @@ where
         match event {
             ProtocolEvent::Message { data, priority, .. } => {
                 debug!("proto [{}] send data: {}", self.proto_id, data.len());
+
+                log::info!(
+                    "substream push into writebuf {}",
+                    hex::encode(data.as_ref())
+                );
+
                 self.push_back(priority, data);
 
                 if let Err(err) = self.send_data(cx) {

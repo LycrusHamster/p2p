@@ -341,7 +341,7 @@ where
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum SessionProtocolEvent {
     Connected {
         version: String,

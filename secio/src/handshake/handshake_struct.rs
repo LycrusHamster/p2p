@@ -12,6 +12,7 @@ use crate::peer_id::PeerId;
 
 use bytes::Bytes;
 use std::fmt;
+use std::fmt::{Debug, Error, Formatter};
 
 #[derive(Clone, Default, PartialEq, Ord, PartialOrd, Eq, Debug)]
 pub struct Propose {
@@ -212,6 +213,16 @@ impl Exchange {
 pub enum PublicKey {
     /// Secp256k1
     Secp256k1(Vec<u8>),
+}
+
+/// to_string
+impl PublicKey {
+    /// to_string
+    pub fn to_string(&self) -> String {
+        match self {
+            PublicKey::Secp256k1(ref key) => hex::encode(key),
+        }
+    }
 }
 
 impl PublicKey {

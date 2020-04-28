@@ -1,20 +1,3 @@
-use futures::{channel::mpsc, prelude::*, stream::FusedStream};
-use log::{debug, error, trace};
-use std::{
-    borrow::Cow,
-    collections::{vec_deque::VecDeque, HashMap, HashSet},
-    error::Error as ErrorTrait,
-    io,
-    pin::Pin,
-    sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
-        Arc,
-    },
-    task::{Context, Poll},
-    time::Duration,
-};
-use tokio::prelude::{AsyncRead, AsyncWrite};
-
 use crate::{
     context::{ServiceContext, SessionContext, SessionController},
     error::Error,
@@ -37,6 +20,23 @@ use crate::{
     yamux::{session::SessionType as YamuxType, Config as YamuxConfig},
     ProtocolId, SessionId,
 };
+use futures::{channel::mpsc, prelude::*, stream::FusedStream};
+use hex;
+use log::{debug, error, trace};
+use std::{
+    borrow::Cow,
+    collections::{vec_deque::VecDeque, HashMap, HashSet},
+    error::Error as ErrorTrait,
+    io,
+    pin::Pin,
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
+    task::{Context, Poll},
+    time::Duration,
+};
+use tokio::prelude::{AsyncRead, AsyncWrite};
 
 pub(crate) mod config;
 mod control;
@@ -412,6 +412,7 @@ where
             }
             if let Some(session) = self.sessions.get_mut(&id) {
                 if session.inner.closed.load(Ordering::SeqCst) {
+                    log::error!("session is closed! {:?}", id);
                     if let SessionEvent::ProtocolMessage { .. } = event {
                         continue;
                     }
@@ -431,6 +432,7 @@ where
                     }
                 }
             } else {
+                log::error!("distribute_to_session_process, missing session_id {:?}", id);
                 debug!("Can't find session {} to send data", id);
             }
         }
@@ -676,6 +678,11 @@ where
         let data_size = data.len();
         if let Some(controller) = self.sessions.get(&session_id) {
             controller.inner.incr_pending_data_size(data_size);
+        } else {
+            log::error!(
+                "push_session_message, session_id:{:?} is missed",
+                session_id
+            )
         }
         let message_event = SessionEvent::ProtocolMessage {
             id: session_id,
@@ -708,10 +715,18 @@ where
             }
             // Send data to the specified protocol for the specified sessions.
             TargetSession::Multi(ids) => {
+                log::info!("handle_message, multi: {}", ids.len());
+
                 for id in self
                     .sessions
                     .keys()
-                    .filter(|id| ids.contains(id))
+                    .filter(|id| {
+                        let ret = ids.contains(id);
+                        if ret == false {
+                            log::error!("handle_message, multi,lost session:{:?}", id);
+                        }
+                        ret
+                    })
                     .cloned()
                     .collect::<Vec<SessionId>>()
                 {
@@ -720,6 +735,10 @@ where
                         id,
                         proto_id,
                         data.len()
+                    );
+                    log::info!(
+                        "handle_message, multi, push: {}",
+                        hex::encode(data.as_ref())
                     );
                     self.push_session_message(id, proto_id, priority, data.clone());
                 }
@@ -949,7 +968,7 @@ where
                 self.next_session,
                 address,
                 ty,
-                remote_pubkey,
+                remote_pubkey.clone(),
                 session_closed,
                 pending_data_size,
             )),
@@ -1035,6 +1054,7 @@ where
         tokio::spawn(async move {
             loop {
                 if session.next().await.is_none() {
+                    log::info!("session is dropped, {:?}", remote_pubkey.unwrap());
                     break;
                 }
             }
@@ -1712,6 +1732,7 @@ where
                 .poll_next(cx)
             {
                 Poll::Ready(Some(task)) => {
+                    log::info!("poll quick_task_receiver, {:?}", task);
                     self.service_context.control().quick_count_sub();
                     Some(task)
                 }
@@ -1725,6 +1746,7 @@ where
                         .poll_next(cx)
                     {
                         Poll::Ready(Some(task)) => {
+                            log::info!("poll service_task_receiver, {:?}", task);
                             self.service_context.control().normal_count_sub();
                             Some(task)
                         }

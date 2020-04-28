@@ -14,7 +14,9 @@ use crate::{
     error::Error,
     multiaddr::Multiaddr,
     protocol_select::ProtocolInfo,
-    service::{event::Priority, ServiceTask, TargetProtocol, TargetSession, RECEIVED_BUFFER_SIZE},
+    service::{
+        event::Priority, event::ServiceTask, TargetProtocol, TargetSession, RECEIVED_BUFFER_SIZE,
+    },
     ProtocolId, SessionId,
 };
 use bytes::Bytes;
@@ -72,14 +74,21 @@ impl ServiceControl {
         }
         if counter.load(Ordering::SeqCst) < limit {
             counter.fetch_add(1, Ordering::SeqCst);
+            log::info!("block send, push into UnboundedSender",);
             sender.unbounded_send(event).map_err(Into::into)
         } else {
+            log::error!("WouldBlock");
             Err(Error::IoError(io::ErrorKind::WouldBlock.into()))
         }
     }
 
     /// Send raw event
     pub(crate) fn send(&self, event: ServiceTask) -> Result<(), Error> {
+        log::info!(
+            "prepare block send to 'service_task_sender', quick_count,{},{:?} ",
+            self.quick_count.load(Ordering::SeqCst),
+            event
+        );
         self.block_send(
             &self.service_task_sender,
             event,
@@ -91,6 +100,11 @@ impl ServiceControl {
     /// Send raw event on quick channel
     #[inline]
     fn quick_send(&self, event: ServiceTask) -> Result<(), Error> {
+        log::info!(
+            "prepare block send to 'quick_task_sender', quick_count,{},{:?} ",
+            self.quick_count.load(Ordering::SeqCst),
+            event
+        );
         self.block_send(
             &self.quick_task_sender,
             event,
